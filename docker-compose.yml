@@ -1,0 +1,68 @@
+version: '3.8'
+
+# ============================================================
+# docker-compose.yml — Local Airflow development environment
+# Author: Pratham Bharadwaj
+# Usage: docker-compose up -d
+#        Open: http://localhost:8080 (airflow / airflow)
+# ============================================================
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.7.0
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/secrets/gcp-credentials.json
+    GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./plugins:/opt/airflow/plugins
+    - ./config:/opt/airflow/config
+    - ./logs:/opt/airflow/logs
+    - ./secrets:/opt/airflow/secrets   # Mount GCP service account JSON here
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+
+  airflow-init:
+    <<: *airflow-common
+    command: >
+      bash -c "airflow db init &&
+               airflow users create
+                 --username airflow
+                 --password airflow
+                 --firstname Pratham
+                 --lastname Bharadwaj
+                 --role Admin
+                 --email prathambharadwaj21@gmail.com"
